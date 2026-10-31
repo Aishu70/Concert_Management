@@ -45,3 +45,6 @@ package.json
 next.config.mjs
 eslint.config.js
 node_modules
+node_modules
+package-lock.json
+package.json
