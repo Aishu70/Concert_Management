@@ -7,15 +7,11 @@ import { getConcerts } from "@/services/concertService";
 export default function Home() {
   const [activePage, setActivePage] = useState("home");
 
-  // Concert data from MySQL
   const [concerts, setConcerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  // Search
   const [search, setSearch] = useState("");
 
-  // Selected concert and ticket data
   const [selectedConcert, setSelectedConcert] = useState(null);
   const [ticketTypes, setTicketTypes] = useState([]);
   const [ticketTypesLoading, setTicketTypesLoading] = useState(false);
@@ -23,8 +19,11 @@ export default function Home() {
   const [selectedTicketTypeId, setSelectedTicketTypeId] = useState("");
   const [quantity, setQuantity] = useState(1);
 
-  // Demo bookings
+  // Database bookings
   const [bookings, setBookings] = useState([]);
+  const [bookingCustomerId, setBookingCustomerId] = useState("");
+  const [bookingSubmitting, setBookingSubmitting] = useState(false);
+  const [bookingMessage, setBookingMessage] = useState("");
 
   // MongoDB reviews
   const [reviews, setReviews] = useState([]);
@@ -36,7 +35,6 @@ export default function Home() {
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewMessage, setReviewMessage] = useState("");
 
-  // Fetch concerts
   useEffect(() => {
     async function loadConcerts() {
       try {
@@ -55,7 +53,6 @@ export default function Home() {
     loadConcerts();
   }, []);
 
-  // Fetch ticket types when a concert is selected
   useEffect(() => {
     if (!selectedConcert) {
       setTicketTypes([]);
@@ -101,7 +98,6 @@ export default function Home() {
     loadTicketTypes();
   }, [selectedConcert]);
 
-  // Fetch MongoDB reviews when a concert is selected
   useEffect(() => {
     if (!selectedConcert) {
       setReviews([]);
@@ -136,7 +132,6 @@ export default function Home() {
     loadReviews();
   }, [selectedConcert]);
 
-  // Search concerts
   const filteredConcerts = useMemo(() => {
     return concerts.filter((concert) => {
       const searchText = [
@@ -164,31 +159,68 @@ export default function Home() {
     ? Number(selectedTicketType.price)
     : 0;
 
-  // Create a demo booking
-  function createBooking() {
+  async function createBooking() {
+    const customerId = Number(bookingCustomerId);
+
     if (!selectedConcert || !selectedTicketType || availableTickets < 1) {
       return;
     }
 
-    if (quantity > availableTickets) {
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      setBookingMessage("Enter a valid customer ID.");
       return;
     }
 
-    const booking = {
-      id: Date.now(),
-      concert: selectedConcert.name,
-      ticket: selectedTicketType.name,
-      quantity,
-      total: ticketPrice * quantity,
-    };
+    if (quantity > availableTickets) {
+      setBookingMessage("The selected quantity is no longer available.");
+      return;
+    }
 
-    setBookings((previous) => [booking, ...previous]);
-    setSelectedConcert(null);
-    setQuantity(1);
-    setActivePage("bookings");
+    try {
+      setBookingSubmitting(true);
+      setBookingMessage("");
+
+      const response = await fetch("/api/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId,
+          concertId: selectedConcert.id,
+          ticketTypeId: selectedTicketType.id,
+          quantity,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Unable to create booking.");
+      }
+
+      setBookings((previous) => [
+        {
+          id: result.data.bookingId,
+          concert: selectedConcert.name,
+          ticket: selectedTicketType.name,
+          quantity,
+          total: Number(
+            result.data.totalAmount ?? ticketPrice * quantity
+          ),
+          status: result.data.status || "PENDING",
+        },
+        ...previous,
+      ]);
+
+      setSelectedConcert(null);
+      setQuantity(1);
+      setActivePage("bookings");
+    } catch (err) {
+      setBookingMessage(err.message || "Unable to create booking.");
+    } finally {
+      setBookingSubmitting(false);
+    }
   }
 
-  // Submit a review to MongoDB
   async function submitReview(event) {
     event.preventDefault();
 
@@ -210,9 +242,7 @@ export default function Home() {
 
       const response = await fetch("/api/reviews", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           concertId: selectedConcert.id,
           customerId,
@@ -249,6 +279,22 @@ export default function Home() {
     });
   }
 
+  // Part 2 continues with the page JSX and ConcertCard component.
+    // Reviews are available only after the concert date has passed.
+  function hasConcertEnded(date) {
+    if (!date) return false;
+
+    const concertDate = String(date).slice(0, 10);
+    const now = new Date();
+    const today = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    return concertDate < today;
+  }
+
   return (
     <div className="app-shell">
       {/* SIDEBAR */}
@@ -264,14 +310,10 @@ export default function Home() {
         <p className="menu-label">MENU</p>
 
         <nav>
-          <button onClick={() => setActivePage("home")}>
-            ⌂ Overview
-          </button>
-
+          <button onClick={() => setActivePage("home")}>⌂ Overview</button>
           <button onClick={() => setActivePage("explore")}>
             ◉ Explore concerts
           </button>
-
           <button onClick={() => setActivePage("bookings")}>
             ▤ My bookings
           </button>
@@ -307,19 +349,15 @@ export default function Home() {
             <>
               <section className="hero">
                 <span>YOUR NEXT LIVE EXPERIENCE STARTS HERE</span>
-
                 <h1>
                   Music brings us
                   <br />
                   together.
                 </h1>
-
                 <p>
-                  Discover unforgettable live performances,
-                  explore new artists and find your next
-                  favourite concert.
+                  Discover unforgettable live performances, explore new artists
+                  and find your next favourite concert.
                 </p>
-
                 <button onClick={() => setActivePage("explore")}>
                   Explore concerts ↗
                 </button>
@@ -376,9 +414,7 @@ export default function Home() {
               ) : error ? (
                 <p className="empty">{error}</p>
               ) : filteredConcerts.length === 0 ? (
-                <p className="empty">
-                  No concerts found. Try another search.
-                </p>
+                <p className="empty">No concerts found. Try another search.</p>
               ) : (
                 <div className="concert-grid">
                   {filteredConcerts.map((concert) => (
@@ -400,16 +436,14 @@ export default function Home() {
                 <div>
                   <span>YOUR CONCERT ACTIVITY</span>
                   <h2>My bookings</h2>
-                  <p>Your demo booking history.</p>
+                  <p>Your bookings created during this session.</p>
                 </div>
               </section>
 
               {bookings.length === 0 ? (
                 <div className="empty">
                   <h3>No bookings yet.</h3>
-                  <p>
-                    Explore concerts and create your first demo booking.
-                  </p>
+                  <p>Explore concerts and create your first booking.</p>
                   <button onClick={() => setActivePage("explore")}>
                     Explore concerts
                   </button>
@@ -424,9 +458,8 @@ export default function Home() {
                     <strong>
                       ₹{booking.total.toLocaleString("en-IN")}
                     </strong>
-                    <p>
-                      Demo booking — not saved to database yet.
-                    </p>
+                    <p>Booking status: {booking.status}</p>
+                    <small>Booking ID: {booking.id}</small>
                   </div>
                 ))
               )}
@@ -454,6 +487,7 @@ export default function Home() {
               {selectedConcert.venue}, {selectedConcert.city}
             </p>
 
+            {/* TICKET BOOKING */}
             <label>Ticket category</label>
 
             {ticketTypesLoading ? (
@@ -471,6 +505,7 @@ export default function Home() {
                   onChange={(event) => {
                     setSelectedTicketTypeId(event.target.value);
                     setQuantity(1);
+                    setBookingMessage("");
                   }}
                 >
                   <option value="">Select a ticket category</option>
@@ -507,7 +542,6 @@ export default function Home() {
                     </p>
 
                     <label>Quantity</label>
-
                     <input
                       type="number"
                       min="1"
@@ -537,24 +571,37 @@ export default function Home() {
               </>
             )}
 
+            <label htmlFor="booking-customer-id">Customer ID</label>
+            <input
+              id="booking-customer-id"
+              type="number"
+              min="1"
+              value={bookingCustomerId}
+              onChange={(event) => setBookingCustomerId(event.target.value)}
+              placeholder="Enter your customer ID"
+            />
+
             <button
               className="book-button"
               onClick={createBooking}
               disabled={
+                bookingSubmitting ||
                 ticketTypesLoading ||
                 !selectedTicketType ||
                 availableTickets < 1 ||
                 quantity > availableTickets
               }
             >
-              Create demo booking
+              {bookingSubmitting ? "Creating booking..." : "Create booking"}
             </button>
 
+            {bookingMessage && <p className="empty">{bookingMessage}</p>}
+
             <p className="disclaimer">
-              Demo only. No ticket is reserved or payment processed.
+              A booking is created as pending. Payment is not processed here.
             </p>
 
-            {/* MONGODB REVIEWS */}
+            {/* REVIEWS */}
             <hr />
 
             <section className="reviews-section">
@@ -565,7 +612,7 @@ export default function Home() {
               ) : reviewsError ? (
                 <p className="empty">{reviewsError}</p>
               ) : reviews.length === 0 ? (
-                <p>No reviews yet. Be the first to review this concert.</p>
+                <p>No reviews yet.</p>
               ) : (
                 <div className="reviews-list">
                   {reviews.map((review) => (
@@ -584,53 +631,59 @@ export default function Home() {
                 </div>
               )}
 
-              <form onSubmit={submitReview} className="review-form">
-                <h4>Write a review</h4>
+              {hasConcertEnded(selectedConcert.date) ? (
+                <form onSubmit={submitReview} className="review-form">
+                  <h4>Write a review</h4>
 
-                <label htmlFor="review-customer-id">Customer ID</label>
-                <input
-                  id="review-customer-id"
-                  type="number"
-                  min="1"
-                  value={reviewCustomerId}
-                  onChange={(event) =>
-                    setReviewCustomerId(event.target.value)
-                  }
-                  required
-                />
+                  <label htmlFor="review-customer-id">Customer ID</label>
+                  <input
+                    id="review-customer-id"
+                    type="number"
+                    min="1"
+                    value={reviewCustomerId}
+                    onChange={(event) =>
+                      setReviewCustomerId(event.target.value)
+                    }
+                    required
+                  />
 
-                <label htmlFor="review-rating">Rating</label>
-                <select
-                  id="review-rating"
-                  value={reviewRating}
-                  onChange={(event) =>
-                    setReviewRating(Number(event.target.value))
-                  }
-                >
-                  <option value={5}>5 - Excellent</option>
-                  <option value={4}>4 - Very good</option>
-                  <option value={3}>3 - Good</option>
-                  <option value={2}>2 - Fair</option>
-                  <option value={1}>1 - Poor</option>
-                </select>
+                  <label htmlFor="review-rating">Rating</label>
+                  <select
+                    id="review-rating"
+                    value={reviewRating}
+                    onChange={(event) =>
+                      setReviewRating(Number(event.target.value))
+                    }
+                  >
+                    <option value={5}>5 - Excellent</option>
+                    <option value={4}>4 - Very good</option>
+                    <option value={3}>3 - Good</option>
+                    <option value={2}>2 - Fair</option>
+                    <option value={1}>1 - Poor</option>
+                  </select>
 
-                <label htmlFor="review-comment">Comment</label>
-                <textarea
-                  id="review-comment"
-                  rows={3}
-                  maxLength={1000}
-                  value={reviewComment}
-                  onChange={(event) => setReviewComment(event.target.value)}
-                  placeholder="How was your concert experience?"
-                  required
-                />
+                  <label htmlFor="review-comment">Comment</label>
+                  <textarea
+                    id="review-comment"
+                    rows={3}
+                    maxLength={1000}
+                    value={reviewComment}
+                    onChange={(event) => setReviewComment(event.target.value)}
+                    placeholder="How was your concert experience?"
+                    required
+                  />
 
-                <button type="submit" disabled={reviewSubmitting}>
-                  {reviewSubmitting ? "Submitting..." : "Submit review"}
-                </button>
+                  <button type="submit" disabled={reviewSubmitting}>
+                    {reviewSubmitting ? "Submitting..." : "Submit review"}
+                  </button>
 
-                {reviewMessage && <p>{reviewMessage}</p>}
-              </form>
+                  {reviewMessage && <p>{reviewMessage}</p>}
+                </form>
+              ) : (
+                <p>
+                  Reviews can be submitted after this concert has taken place.
+                </p>
+              )}
             </section>
           </div>
         </div>
@@ -669,9 +722,7 @@ function ConcertCard({ concert, onSelect }) {
             ₹{Number(concert.price || 0).toLocaleString("en-IN")}
           </strong>
 
-          <button onClick={() => onSelect(concert)}>
-            View details
-          </button>
+          <button onClick={() => onSelect(concert)}>View details</button>
         </div>
       </div>
     </article>
