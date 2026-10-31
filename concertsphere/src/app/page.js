@@ -23,8 +23,18 @@ export default function Home() {
   const [selectedTicketTypeId, setSelectedTicketTypeId] = useState("");
   const [quantity, setQuantity] = useState(1);
 
-  // Demo bookings (not saved to the database yet)
+  // Demo bookings
   const [bookings, setBookings] = useState([]);
+
+  // MongoDB reviews
+  const [reviews, setReviews] = useState([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewsError, setReviewsError] = useState("");
+  const [reviewCustomerId, setReviewCustomerId] = useState("");
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState("");
 
   // Fetch concerts
   useEffect(() => {
@@ -45,7 +55,7 @@ export default function Home() {
     loadConcerts();
   }, []);
 
-  // Fetch ticket types and availability when a concert is selected
+  // Fetch ticket types when a concert is selected
   useEffect(() => {
     if (!selectedConcert) {
       setTicketTypes([]);
@@ -73,7 +83,6 @@ export default function Home() {
         const types = result.data || [];
         setTicketTypes(types);
 
-        // Select the first category that has available tickets
         const firstAvailable = types.find(
           (type) => Number(type.available_tickets) > 0
         );
@@ -90,6 +99,41 @@ export default function Home() {
     }
 
     loadTicketTypes();
+  }, [selectedConcert]);
+
+  // Fetch MongoDB reviews when a concert is selected
+  useEffect(() => {
+    if (!selectedConcert) {
+      setReviews([]);
+      setReviewsError("");
+      setReviewMessage("");
+      return;
+    }
+
+    async function loadReviews() {
+      try {
+        setReviewsLoading(true);
+        setReviewsError("");
+
+        const response = await fetch(
+          `/api/reviews?concertId=${selectedConcert.id}`
+        );
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || "Unable to load reviews.");
+        }
+
+        setReviews(result.data || []);
+      } catch (err) {
+        console.error("Failed to load reviews:", err);
+        setReviewsError(err.message || "Unable to load reviews.");
+      } finally {
+        setReviewsLoading(false);
+      }
+    }
+
+    loadReviews();
   }, [selectedConcert]);
 
   // Search concerts
@@ -120,7 +164,7 @@ export default function Home() {
     ? Number(selectedTicketType.price)
     : 0;
 
-  // Create a demo booking using the database ticket price
+  // Create a demo booking
   function createBooking() {
     if (!selectedConcert || !selectedTicketType || availableTickets < 1) {
       return;
@@ -142,6 +186,57 @@ export default function Home() {
     setSelectedConcert(null);
     setQuantity(1);
     setActivePage("bookings");
+  }
+
+  // Submit a review to MongoDB
+  async function submitReview(event) {
+    event.preventDefault();
+
+    const customerId = Number(reviewCustomerId);
+
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      setReviewMessage("Enter a valid customer ID.");
+      return;
+    }
+
+    if (!reviewComment.trim()) {
+      setReviewMessage("Please enter a comment.");
+      return;
+    }
+
+    try {
+      setReviewSubmitting(true);
+      setReviewMessage("");
+
+      const response = await fetch("/api/reviews", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          concertId: selectedConcert.id,
+          customerId,
+          rating: Number(reviewRating),
+          comment: reviewComment.trim(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Unable to submit review.");
+      }
+
+      setReviews((previous) => [result.data, ...previous]);
+      setReviewComment("");
+      setReviewRating(5);
+      setReviewMessage("Review added successfully!");
+    } catch (err) {
+      console.error("Failed to submit review:", err);
+      setReviewMessage(err.message || "Unable to submit review.");
+    } finally {
+      setReviewSubmitting(false);
+    }
   }
 
   function formatDate(date) {
@@ -273,7 +368,7 @@ export default function Home() {
                 className="search"
                 placeholder="Search concerts, artists or cities..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(event) => setSearch(event.target.value)}
               />
 
               {loading ? (
@@ -373,8 +468,8 @@ export default function Home() {
               <>
                 <select
                   value={selectedTicketTypeId}
-                  onChange={(e) => {
-                    setSelectedTicketTypeId(e.target.value);
+                  onChange={(event) => {
+                    setSelectedTicketTypeId(event.target.value);
                     setQuantity(1);
                   }}
                 >
@@ -419,14 +514,14 @@ export default function Home() {
                       max={Math.min(6, availableTickets)}
                       value={quantity}
                       disabled={availableTickets < 1}
-                      onChange={(e) =>
+                      onChange={(event) =>
                         setQuantity(
                           Math.max(
                             1,
                             Math.min(
                               6,
                               availableTickets,
-                              Number(e.target.value) || 1
+                              Number(event.target.value) || 1
                             )
                           )
                         )
@@ -458,13 +553,91 @@ export default function Home() {
             <p className="disclaimer">
               Demo only. No ticket is reserved or payment processed.
             </p>
+
+            {/* MONGODB REVIEWS */}
+            <hr />
+
+            <section className="reviews-section">
+              <h3>Concert reviews</h3>
+
+              {reviewsLoading ? (
+                <p>Loading reviews...</p>
+              ) : reviewsError ? (
+                <p className="empty">{reviewsError}</p>
+              ) : reviews.length === 0 ? (
+                <p>No reviews yet. Be the first to review this concert.</p>
+              ) : (
+                <div className="reviews-list">
+                  {reviews.map((review) => (
+                    <article className="review-card" key={review._id}>
+                      <strong>
+                        {"★".repeat(Number(review.rating))}
+                        {"☆".repeat(5 - Number(review.rating))}
+                      </strong>
+                      <p>{review.comment}</p>
+                      <small>
+                        Customer #{review.customerId} ·{" "}
+                        {new Date(review.createdAt).toLocaleDateString("en-IN")}
+                      </small>
+                    </article>
+                  ))}
+                </div>
+              )}
+
+              <form onSubmit={submitReview} className="review-form">
+                <h4>Write a review</h4>
+
+                <label htmlFor="review-customer-id">Customer ID</label>
+                <input
+                  id="review-customer-id"
+                  type="number"
+                  min="1"
+                  value={reviewCustomerId}
+                  onChange={(event) =>
+                    setReviewCustomerId(event.target.value)
+                  }
+                  required
+                />
+
+                <label htmlFor="review-rating">Rating</label>
+                <select
+                  id="review-rating"
+                  value={reviewRating}
+                  onChange={(event) =>
+                    setReviewRating(Number(event.target.value))
+                  }
+                >
+                  <option value={5}>5 - Excellent</option>
+                  <option value={4}>4 - Very good</option>
+                  <option value={3}>3 - Good</option>
+                  <option value={2}>2 - Fair</option>
+                  <option value={1}>1 - Poor</option>
+                </select>
+
+                <label htmlFor="review-comment">Comment</label>
+                <textarea
+                  id="review-comment"
+                  rows={3}
+                  maxLength={1000}
+                  value={reviewComment}
+                  onChange={(event) => setReviewComment(event.target.value)}
+                  placeholder="How was your concert experience?"
+                  required
+                />
+
+                <button type="submit" disabled={reviewSubmitting}>
+                  {reviewSubmitting ? "Submitting..." : "Submit review"}
+                </button>
+
+                {reviewMessage && <p>{reviewMessage}</p>}
+              </form>
+            </section>
           </div>
         </div>
       )}
     </div>
   );
 }
-
 
 // CONCERT CARD COMPONENT
 function ConcertCard({ concert, onSelect }) {
