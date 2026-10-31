@@ -7,7 +7,7 @@ import { getConcerts } from "@/services/concertService";
 export default function Home() {
   const [activePage, setActivePage] = useState("home");
 
-  // Concert data from MySQL API
+  // Concert data from MySQL
   const [concerts, setConcerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -15,27 +15,23 @@ export default function Home() {
   // Search
   const [search, setSearch] = useState("");
 
-  // Selected concert and demo booking details
+  // Selected concert and ticket data
   const [selectedConcert, setSelectedConcert] = useState(null);
-  const [ticket, setTicket] = useState("Gold");
+  const [ticketTypes, setTicketTypes] = useState([]);
+  const [ticketTypesLoading, setTicketTypesLoading] = useState(false);
+  const [ticketTypesError, setTicketTypesError] = useState("");
+  const [selectedTicketTypeId, setSelectedTicketTypeId] = useState("");
   const [quantity, setQuantity] = useState(1);
+
+  // Demo bookings (not saved to the database yet)
   const [bookings, setBookings] = useState([]);
 
-  // Demo ticket prices (will be replaced with database ticket types later)
-  const ticketPrices = {
-    Silver: 799,
-    Gold: 1499,
-    VIP: 2499,
-  };
-
-  // Fetch concerts from MySQL through the API
+  // Fetch concerts
   useEffect(() => {
     async function loadConcerts() {
       try {
         setLoading(true);
-
         const data = await getConcerts();
-
         setConcerts(data);
         setError("");
       } catch (err) {
@@ -49,7 +45,54 @@ export default function Home() {
     loadConcerts();
   }, []);
 
-  // Search and filter concerts
+  // Fetch ticket types and availability when a concert is selected
+  useEffect(() => {
+    if (!selectedConcert) {
+      setTicketTypes([]);
+      setSelectedTicketTypeId("");
+      setTicketTypesError("");
+      return;
+    }
+
+    async function loadTicketTypes() {
+      try {
+        setTicketTypesLoading(true);
+        setTicketTypesError("");
+        setTicketTypes([]);
+        setSelectedTicketTypeId("");
+
+        const response = await fetch(
+          `/api/ticket-types?concertId=${selectedConcert.id}`
+        );
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || "Unable to load ticket types.");
+        }
+
+        const types = result.data || [];
+        setTicketTypes(types);
+
+        // Select the first category that has available tickets
+        const firstAvailable = types.find(
+          (type) => Number(type.available_tickets) > 0
+        );
+
+        setSelectedTicketTypeId(
+          firstAvailable ? String(firstAvailable.id) : ""
+        );
+      } catch (err) {
+        console.error("Failed to load ticket types:", err);
+        setTicketTypesError(err.message || "Unable to load ticket types.");
+      } finally {
+        setTicketTypesLoading(false);
+      }
+    }
+
+    loadTicketTypes();
+  }, [selectedConcert]);
+
+  // Search concerts
   const filteredConcerts = useMemo(() => {
     return concerts.filter((concert) => {
       const searchText = [
@@ -65,26 +108,42 @@ export default function Home() {
     });
   }, [concerts, search]);
 
-  // Create a demo booking
+  const selectedTicketType = ticketTypes.find(
+    (type) => String(type.id) === selectedTicketTypeId
+  );
+
+  const availableTickets = selectedTicketType
+    ? Number(selectedTicketType.available_tickets)
+    : 0;
+
+  const ticketPrice = selectedTicketType
+    ? Number(selectedTicketType.price)
+    : 0;
+
+  // Create a demo booking using the database ticket price
   function createBooking() {
-    if (!selectedConcert) return;
+    if (!selectedConcert || !selectedTicketType || availableTickets < 1) {
+      return;
+    }
+
+    if (quantity > availableTickets) {
+      return;
+    }
 
     const booking = {
       id: Date.now(),
       concert: selectedConcert.name,
-      ticket,
+      ticket: selectedTicketType.name,
       quantity,
-      total: ticketPrices[ticket] * quantity,
+      total: ticketPrice * quantity,
     };
 
     setBookings((previous) => [booking, ...previous]);
-
     setSelectedConcert(null);
     setQuantity(1);
     setActivePage("bookings");
   }
 
-  // Format concert date
   function formatDate(date) {
     if (!date) return "Date unavailable";
 
@@ -97,13 +156,10 @@ export default function Home() {
 
   return (
     <div className="app-shell">
-
       {/* SIDEBAR */}
       <aside className="sidebar">
-
         <div className="brand">
           <span className="brand-mark">C</span>
-
           <div>
             <strong>concertsphere</strong>
             <small>YOUR WORLD OF LIVE MUSIC</small>
@@ -131,18 +187,13 @@ export default function Home() {
           <p>Discover music. Find your people.</p>
           <small>CONCERTSPHERE · 2026</small>
         </div>
-
       </aside>
 
       {/* MAIN CONTENT */}
       <main className="main-area">
-
-        {/* TOPBAR */}
         <header className="topbar">
-
           <div>
             <p>Workspace / {activePage}</p>
-
             <h2>
               {activePage === "home"
                 ? "Your concert dashboard"
@@ -153,17 +204,13 @@ export default function Home() {
           </div>
 
           <div className="profile">C</div>
-
         </header>
 
         <div className="content">
-
           {/* HOME PAGE */}
           {activePage === "home" && (
             <>
-
               <section className="hero">
-
                 <span>YOUR NEXT LIVE EXPERIENCE STARTS HERE</span>
 
                 <h1>
@@ -181,17 +228,14 @@ export default function Home() {
                 <button onClick={() => setActivePage("explore")}>
                   Explore concerts ↗
                 </button>
-
               </section>
 
               <section className="section-heading">
-
                 <div>
                   <span>HANDPICKED FOR YOU</span>
                   <h2>Featured concerts</h2>
                   <p>Find the experience worth showing up for.</p>
                 </div>
-
               </section>
 
               {loading ? (
@@ -201,9 +245,7 @@ export default function Home() {
               ) : concerts.length === 0 ? (
                 <p className="empty">No concerts available.</p>
               ) : (
-
                 <div className="concert-grid">
-
                   {concerts.slice(0, 3).map((concert) => (
                     <ConcertCard
                       key={concert.id}
@@ -211,29 +253,22 @@ export default function Home() {
                       onSelect={setSelectedConcert}
                     />
                   ))}
-
                 </div>
-
               )}
-
             </>
           )}
 
           {/* EXPLORE PAGE */}
           {activePage === "explore" && (
             <>
-
               <section className="section-heading">
-
                 <div>
                   <span>FIND YOUR NEXT EXPERIENCE</span>
                   <h2>Explore concerts</h2>
                   <p>Discover artists, events and live music.</p>
                 </div>
-
               </section>
 
-              {/* SEARCH */}
               <input
                 className="search"
                 placeholder="Search concerts, artists or cities..."
@@ -241,7 +276,6 @@ export default function Home() {
                 onChange={(e) => setSearch(e.target.value)}
               />
 
-              {/* CONCERT LIST */}
               {loading ? (
                 <p>Loading concerts...</p>
               ) : error ? (
@@ -251,9 +285,7 @@ export default function Home() {
                   No concerts found. Try another search.
                 </p>
               ) : (
-
                 <div className="concert-grid">
-
                   {filteredConcerts.map((concert) => (
                     <ConcertCard
                       key={concert.id}
@@ -261,84 +293,57 @@ export default function Home() {
                       onSelect={setSelectedConcert}
                     />
                   ))}
-
                 </div>
-
               )}
-
             </>
           )}
 
           {/* BOOKINGS PAGE */}
           {activePage === "bookings" && (
             <>
-
               <section className="section-heading">
-
                 <div>
                   <span>YOUR CONCERT ACTIVITY</span>
                   <h2>My bookings</h2>
                   <p>Your demo booking history.</p>
                 </div>
-
               </section>
 
               {bookings.length === 0 ? (
-
                 <div className="empty">
-
                   <h3>No bookings yet.</h3>
-
                   <p>
                     Explore concerts and create your first demo booking.
                   </p>
-
                   <button onClick={() => setActivePage("explore")}>
                     Explore concerts
                   </button>
-
                 </div>
-
               ) : (
-
                 bookings.map((booking) => (
-
                   <div className="booking-card" key={booking.id}>
-
                     <h3>{booking.concert}</h3>
-
                     <p>
                       {booking.ticket} · {booking.quantity} ticket(s)
                     </p>
-
                     <strong>
                       ₹{booking.total.toLocaleString("en-IN")}
                     </strong>
-
                     <p>
                       Demo booking — not saved to database yet.
                     </p>
-
                   </div>
-
                 ))
-
               )}
-
             </>
           )}
-
         </div>
-
       </main>
 
       {/* CONCERT DETAILS MODAL */}
       {selectedConcert && (
-
         <div className="modal-backdrop">
-
           <div className="modal">
-
             <button
               className="close"
               onClick={() => setSelectedConcert(null)}
@@ -347,61 +352,115 @@ export default function Home() {
             </button>
 
             <span>CONCERT DETAILS</span>
-
             <h2>{selectedConcert.name}</h2>
-
             <p>{selectedConcert.artist}</p>
-
             <p>{formatDate(selectedConcert.date)}</p>
-
             <p>
               {selectedConcert.venue}, {selectedConcert.city}
             </p>
 
             <label>Ticket category</label>
 
-            <select
-              value={ticket}
-              onChange={(e) => setTicket(e.target.value)}
-            >
-              <option value="Silver">Silver — ₹799</option>
-              <option value="Gold">Gold — ₹1,499</option>
-              <option value="VIP">VIP — ₹2,499</option>
-            </select>
+            {ticketTypesLoading ? (
+              <p>Loading ticket categories...</p>
+            ) : ticketTypesError ? (
+              <p className="empty">{ticketTypesError}</p>
+            ) : ticketTypes.length === 0 ? (
+              <p className="empty">
+                No ticket categories are listed for this concert.
+              </p>
+            ) : (
+              <>
+                <select
+                  value={selectedTicketTypeId}
+                  onChange={(e) => {
+                    setSelectedTicketTypeId(e.target.value);
+                    setQuantity(1);
+                  }}
+                >
+                  <option value="">Select a ticket category</option>
 
-            <label>Quantity</label>
+                  {ticketTypes.map((type) => {
+                    const available = Number(type.available_tickets);
 
-            <input
-              type="number"
-              min="1"
-              max="6"
-              value={quantity}
-              onChange={(e) =>
-                setQuantity(
-                  Math.max(1, Math.min(6, Number(e.target.value) || 1))
-                )
+                    return (
+                      <option
+                        key={type.id}
+                        value={String(type.id)}
+                        disabled={available < 1}
+                      >
+                        {type.name} — ₹
+                        {Number(type.price).toLocaleString("en-IN")}
+                        {available < 1
+                          ? " (Sold out)"
+                          : ` (${available} available)`}
+                      </option>
+                    );
+                  })}
+                </select>
+
+                {selectedTicketType && (
+                  <>
+                    {selectedTicketType.description && (
+                      <p>{selectedTicketType.description}</p>
+                    )}
+
+                    <p>
+                      {availableTickets > 0
+                        ? `${availableTickets} ticket(s) available`
+                        : "This ticket category is sold out."}
+                    </p>
+
+                    <label>Quantity</label>
+
+                    <input
+                      type="number"
+                      min="1"
+                      max={Math.min(6, availableTickets)}
+                      value={quantity}
+                      disabled={availableTickets < 1}
+                      onChange={(e) =>
+                        setQuantity(
+                          Math.max(
+                            1,
+                            Math.min(
+                              6,
+                              availableTickets,
+                              Number(e.target.value) || 1
+                            )
+                          )
+                        )
+                      }
+                    />
+
+                    <h3>
+                      Total: ₹
+                      {(ticketPrice * quantity).toLocaleString("en-IN")}
+                    </h3>
+                  </>
+                )}
+              </>
+            )}
+
+            <button
+              className="book-button"
+              onClick={createBooking}
+              disabled={
+                ticketTypesLoading ||
+                !selectedTicketType ||
+                availableTickets < 1 ||
+                quantity > availableTickets
               }
-            />
-
-            <h3>
-              Total: ₹
-              {(ticketPrices[ticket] * quantity).toLocaleString("en-IN")}
-            </h3>
-
-            <button className="book-button" onClick={createBooking}>
+            >
               Create demo booking
             </button>
 
             <p className="disclaimer">
-              Demo only. No real ticket is reserved or payment processed.
+              Demo only. No ticket is reserved or payment processed.
             </p>
-
           </div>
-
         </div>
-
       )}
-
     </div>
   );
 }
@@ -409,7 +468,6 @@ export default function Home() {
 
 // CONCERT CARD COMPONENT
 function ConcertCard({ concert, onSelect }) {
-
   const formattedDate = concert.date
     ? new Date(concert.date).toLocaleDateString("en-IN", {
         day: "numeric",
@@ -419,31 +477,21 @@ function ConcertCard({ concert, onSelect }) {
     : "Date unavailable";
 
   return (
-
     <article className="concert-card">
-
       <div className="concert-art purple">
-
         <span>LIVE CONCERT</span>
-
         <h2>{concert.name}</h2>
-
         <p>{concert.artist}</p>
-
       </div>
 
       <div className="card-content">
-
         <span className="date">{formattedDate}</span>
-
         <h3>{concert.name}</h3>
-
         <p>
           {concert.venue}, {concert.city}
         </p>
 
         <div className="card-footer">
-
           <strong>
             ₹{Number(concert.price || 0).toLocaleString("en-IN")}
           </strong>
@@ -451,12 +499,8 @@ function ConcertCard({ concert, onSelect }) {
           <button onClick={() => onSelect(concert)}>
             View details
           </button>
-
         </div>
-
       </div>
-
     </article>
-
   );
 }
