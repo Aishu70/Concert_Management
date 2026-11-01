@@ -25,6 +25,12 @@ export default function Home() {
 
   // MySQL bookings
   const [bookings, setBookings] = useState([]);
+  const [paymentBooking, setPaymentBooking] = useState(null);
+  const [paymentRecord, setPaymentRecord] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState("UPI");
+  const [transactionId, setTransactionId] = useState("");
+  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
+  const [paymentError, setPaymentError] = useState("");
   const [bookingCustomerId, setBookingCustomerId] = useState("");
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [bookingMessage, setBookingMessage] = useState("");
@@ -183,6 +189,8 @@ export default function Home() {
   const ticketPrice = selectedTicketType
     ? Number(selectedTicketType.price)
     : 0;
+  const concertHasEnded =
+    Number(selectedConcert?.hasEnded) === 1;
 
   // Create booking through the MySQL API
   async function createBooking() {
@@ -273,14 +281,13 @@ export default function Home() {
         ...previous,
       ]);
 
-      setBookingMessage(
-        `Booking #${result.bookingId} created successfully. Status: ${
-          result.bookingStatus || "PENDING"
-        }. Payment has not been processed.`
-      );
-
-      setBookingMessageType("success");
-
+      setPaymentBooking(newBooking);
+      setPaymentRecord(null);
+      setPaymentMethod("UPI");
+      setTransactionId("");
+      setPaymentError("");
+      setSelectedConcert(null);
+      setActivePage("payment");
       setQuantity(1);
 
     } catch (err) {
@@ -332,9 +339,54 @@ export default function Home() {
     }
   }
 
+  async function savePayment(event) {
+    event.preventDefault();
+
+    if (!paymentBooking || paymentSubmitting || paymentRecord) {
+      return;
+    }
+
+    try {
+      setPaymentSubmitting(true);
+      setPaymentError("");
+
+      const response = await fetch("/api/payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          bookingId: paymentBooking.id,
+          paymentMethod,
+          transactionId: transactionId.trim(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Unable to save payment record.");
+      }
+
+      setPaymentRecord(result.data);
+    } catch (err) {
+      console.error("Failed to save payment record:", err);
+      setPaymentError(err.message || "Unable to save payment record.");
+    } finally {
+      setPaymentSubmitting(false);
+    }
+  }
+
   // Submit a review to MongoDB
   async function submitReview(event) {
     event.preventDefault();
+
+    if (!concertHasEnded) {
+      setReviewMessage(
+        "Reviews can only be submitted after the concert has ended."
+      );
+      return;
+    }
 
     const customerId = Number(reviewCustomerId);
 
@@ -432,6 +484,12 @@ export default function Home() {
           <button onClick={() => setActivePage("bookings")}>
             ▤ My bookings
           </button>
+
+          {paymentBooking && (
+            <button onClick={() => setActivePage("payment")}>
+              ₹ Continue to payment
+            </button>
+          )}
         </nav>
 
         <div className="sidebar-bottom">
@@ -453,7 +511,9 @@ export default function Home() {
                 ? "Your concert dashboard"
                 : activePage === "explore"
                   ? "Discover live music"
-                  : "Your bookings"}
+                  : activePage === "payment"
+                    ? "Complete your booking"
+                    : "Your bookings"}
             </h2>
           </div>
 
@@ -558,6 +618,157 @@ export default function Home() {
           )}
 
           {/* BOOKINGS PAGE */}
+          {activePage === "payment" && paymentBooking && (
+            <>
+              <section className="section-heading">
+                <div>
+                  <span>BOOKING SAVED</span>
+                  <h2>Payment</h2>
+                  <p>Your booking is saved. Review the amount below.</p>
+                </div>
+              </section>
+
+              <section className="payment-card">
+                <h3>{paymentBooking.concert}</h3>
+                <p>
+                  {paymentBooking.ticket} · {paymentBooking.quantity}{" "}
+                  ticket(s)
+                </p>
+                <p>Booking ID: {paymentBooking.id}</p>
+                <p>Booking status: {paymentBooking.status}</p>
+
+                <div className="payment-total">
+                  <span>Total amount</span>
+                  <strong>
+                    ₹{paymentBooking.total.toLocaleString("en-IN")}
+                  </strong>
+                </div>
+
+                {paymentRecord ? (
+                  <dl className="payment-fields">
+                    <div>
+                      <dt>Payment ID</dt>
+                      <dd>{paymentRecord.paymentId}</dd>
+                    </div>
+                    <div>
+                      <dt>Booking ID</dt>
+                      <dd>{paymentRecord.bookingId}</dd>
+                    </div>
+                    <div>
+                      <dt>Amount</dt>
+                      <dd>
+                        ₹{Number(paymentRecord.amount).toLocaleString("en-IN")}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Payment date</dt>
+                      <dd>
+                        {new Date(paymentRecord.paymentDate).toLocaleString(
+                          "en-IN"
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Payment method</dt>
+                      <dd>{paymentRecord.paymentMethod}</dd>
+                    </div>
+                    <div>
+                      <dt>Payment status</dt>
+                      <dd>{paymentRecord.paymentStatus}</dd>
+                    </div>
+                    <div>
+                      <dt>Transaction ID</dt>
+                      <dd>{paymentRecord.transactionId || "Not provided"}</dd>
+                    </div>
+                    <p className="payment-demo-notice" role="status">
+                      Payment record saved. This demo does not charge money;
+                      the payment status remains {paymentRecord.paymentStatus}.
+                    </p>
+                  </dl>
+                ) : (
+                  <form className="payment-form" onSubmit={savePayment}>
+                    <label htmlFor="payment-id">Payment ID</label>
+                    <input
+                      id="payment-id"
+                      value="Generated when payment is saved"
+                      readOnly
+                    />
+
+                    <label htmlFor="payment-booking-id">Booking ID</label>
+                    <input
+                      id="payment-booking-id"
+                      value={paymentBooking.id}
+                      readOnly
+                    />
+
+                    <label htmlFor="payment-amount">Amount</label>
+                    <input
+                      id="payment-amount"
+                      value={`₹${paymentBooking.total.toLocaleString("en-IN")}`}
+                      readOnly
+                    />
+
+                    <label htmlFor="payment-date">Payment date</label>
+                    <input
+                      id="payment-date"
+                      value="Set automatically by MySQL"
+                      readOnly
+                    />
+
+                    <label htmlFor="payment-method">Payment method</label>
+                    <select
+                      id="payment-method"
+                      value={paymentMethod}
+                      onChange={(event) => setPaymentMethod(event.target.value)}
+                      disabled={paymentSubmitting}
+                    >
+                      <option value="UPI">UPI</option>
+                      <option value="CARD">Card</option>
+                      <option value="NET_BANKING">Net banking</option>
+                      <option value="CASH">Cash</option>
+                    </select>
+
+                    <label htmlFor="payment-status">Payment status</label>
+                    <input id="payment-status" value="PENDING" readOnly />
+
+                    <label htmlFor="payment-transaction-id">
+                      Transaction ID (optional)
+                    </label>
+                    <input
+                      id="payment-transaction-id"
+                      maxLength={100}
+                      value={transactionId}
+                      onChange={(event) => setTransactionId(event.target.value)}
+                      placeholder="Provided by a payment gateway"
+                      disabled={paymentSubmitting}
+                    />
+
+                    <p className="payment-demo-notice" role="note">
+                      Demo only: this saves a PENDING payment record. No
+                      payment details are collected and no money is charged.
+                    </p>
+
+                    {paymentError && (
+                      <p className="booking-error" role="alert">
+                        {paymentError}
+                      </p>
+                    )}
+
+                    <button
+                      className="book-button"
+                      type="submit"
+                      disabled={paymentSubmitting}
+                    >
+                      {paymentSubmitting
+                        ? "Saving payment..."
+                        : "Save payment record"}
+                    </button>
+                  </form>
+                )}
+              </section>
+            </>
+          )}
+
           {activePage === "bookings" && (
             <>
               <section className="section-heading">
@@ -826,10 +1037,10 @@ export default function Home() {
                 </div>
               )}
 
-              {/* REVIEW FORM */}
               <form
                 onSubmit={submitReview}
                 className="review-form"
+                hidden={!concertHasEnded}
               >
                 <h4>Write a review</h4>
 
@@ -895,6 +1106,12 @@ export default function Home() {
                   <p>{reviewMessage}</p>
                 )}
               </form>
+
+              {!concertHasEnded && (
+                <p className="review-form" role="status">
+                  Reviews can be submitted after the concert has ended.
+                </p>
+              )}
             </section>
           </div>
         </div>

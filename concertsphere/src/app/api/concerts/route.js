@@ -11,6 +11,10 @@ export async function GET() {
         c.concert_date AS date,
         c.start_time AS start_time,
         c.end_time AS end_time,
+        CASE
+          WHEN TIMESTAMP(c.concert_date, c.end_time) <= CURRENT_TIMESTAMP THEN 1
+          ELSE 0
+        END AS hasEnded,
         c.status AS status,
 
         v.venue_name AS venue,

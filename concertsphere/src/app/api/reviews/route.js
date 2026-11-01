@@ -1,6 +1,7 @@
 
 import { NextResponse } from "next/server";
 import { getMongoDb } from "@/lib/mongodb";
+import pool from "@/lib/mysql";
 
 export async function GET(request) {
   try {
@@ -86,6 +87,36 @@ export async function POST(request) {
             "Provide valid concertId, customerId, rating (1–5), and a comment of up to 1000 characters.",
         },
         { status: 400 }
+      );
+    }
+
+    const [concerts] = await pool.execute(
+      `
+      SELECT
+        TIMESTAMP(concert_date, end_time) <= CURRENT_TIMESTAMP AS hasEnded
+      FROM Concert
+      WHERE concert_id = ?
+      `,
+      [concertId]
+    );
+
+    if (concerts.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Concert not found.",
+        },
+        { status: 404 }
+      );
+    }
+
+    if (Number(concerts[0].hasEnded) !== 1) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Reviews can only be submitted after the concert has ended.",
+        },
+        { status: 403 }
       );
     }
 

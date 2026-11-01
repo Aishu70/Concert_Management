@@ -346,6 +346,106 @@ button {
   font-size: 12px;
 }
 
+.payment-card {
+  max-width: 560px;
+  padding: 26px;
+  border: 1px solid #eeeaf3;
+  border-radius: 15px;
+  background: white;
+}
+
+.payment-card > p {
+  color: #777;
+  font-size: 13px;
+}
+
+.payment-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 24px 0;
+  padding-top: 20px;
+  border-top: 1px solid #eeeaf3;
+}
+
+.payment-total strong {
+  font-size: 23px;
+}
+
+.payment-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.payment-form label {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.payment-form input,
+.payment-form select {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #e3deeb;
+  border-radius: 8px;
+  background: white;
+  color: #292235;
+}
+
+.payment-form input[readonly] {
+  background: #f8f7fb;
+  color: #777;
+}
+
+.payment-fields {
+  display: grid;
+  gap: 12px;
+  margin: 24px 0 0;
+}
+
+.payment-fields > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #eeeaf3;
+}
+
+.payment-fields dt {
+  color: #777;
+}
+
+.payment-fields dd {
+  margin: 0;
+  font-weight: bold;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.payment-fields .payment-demo-notice {
+  margin: 8px 0 0;
+}
+
+.payment-demo-notice {
+  padding: 14px;
+  border-radius: 8px;
+  background: #f3edff;
+  color: #58427f;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.payment-demo-success {
+  padding: 14px;
+  border-radius: 8px;
+  background: #edf8ef;
+  color: #286338;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
