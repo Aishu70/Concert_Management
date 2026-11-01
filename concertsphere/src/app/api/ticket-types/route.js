@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import pool from "@/lib/mysql";
 
@@ -6,11 +7,7 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const concertId = Number(searchParams.get("concertId"));
 
-    // Validate concert ID
-    if (
-      !Number.isInteger(concertId) ||
-      concertId <= 0
-    ) {
+    if (!Number.isInteger(concertId) || concertId <= 0) {
       return NextResponse.json(
         {
           success: false,
@@ -20,7 +17,6 @@ export async function GET(request) {
       );
     }
 
-    // Retrieve all ticket categories and their availability
     const [ticketTypes] = await pool.execute(
       `
       SELECT
@@ -28,9 +24,7 @@ export async function GET(request) {
         tt.type_name AS name,
         tt.price AS price,
         tt.description AS description,
-
         COUNT(t.ticket_id) AS total_tickets,
-
         COALESCE(
           SUM(
             CASE
@@ -40,19 +34,15 @@ export async function GET(request) {
           ),
           0
         ) AS available_tickets
-
       FROM TicketType tt
-
       LEFT JOIN Ticket t
         ON t.ticket_type_id = tt.ticket_type_id
         AND t.concert_id = ?
-
       GROUP BY
         tt.ticket_type_id,
         tt.type_name,
         tt.price,
         tt.description
-
       ORDER BY tt.price ASC
       `,
       [concertId]
@@ -62,7 +52,6 @@ export async function GET(request) {
       success: true,
       data: ticketTypes,
     });
-
   } catch (error) {
     console.error("Ticket types API error:", error);
 

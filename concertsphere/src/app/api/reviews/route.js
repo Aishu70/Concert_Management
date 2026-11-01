@@ -99,9 +99,7 @@ export async function POST(request) {
       createdAt: new Date(),
     };
 
-    const result = await db
-      .collection("reviews")
-      .insertOne(review);
+    const result = await db.collection("reviews").insertOne(review);
 
     return NextResponse.json(
       {
