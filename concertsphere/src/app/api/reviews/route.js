@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import { getMongoDb } from "@/lib/mongodb";
 
@@ -8,7 +9,10 @@ export async function GET(request) {
 
     if (!Number.isInteger(concertId) || concertId <= 0) {
       return NextResponse.json(
-        { success: false, message: "A valid concertId is required." },
+        {
+          success: false,
+          message: "A valid concertId is required.",
+        },
         { status: 400 }
       );
     }
@@ -32,7 +36,10 @@ export async function GET(request) {
     console.error("Get reviews error:", error);
 
     return NextResponse.json(
-      { success: false, message: "Unable to fetch reviews." },
+      {
+        success: false,
+        message: "Unable to fetch reviews.",
+      },
       { status: 500 }
     );
   }
@@ -42,10 +49,24 @@ export async function POST(request) {
   try {
     const body = await request.json();
 
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Invalid review data.",
+        },
+        { status: 400 }
+      );
+    }
+
     const concertId = Number(body.concertId);
     const customerId = Number(body.customerId);
     const rating = Number(body.rating);
-    const comment = typeof body.comment === "string" ? body.comment.trim() : "";
+
+    const comment =
+      typeof body.comment === "string"
+        ? body.comment.trim()
+        : "";
 
     if (
       !Number.isInteger(concertId) ||
@@ -55,12 +76,14 @@ export async function POST(request) {
       !Number.isInteger(rating) ||
       rating < 1 ||
       rating > 5 ||
-      !comment
+      !comment ||
+      comment.length > 1000
     ) {
       return NextResponse.json(
         {
           success: false,
-          message: "Provide valid concertId, customerId, rating (1–5), and comment.",
+          message:
+            "Provide valid concertId, customerId, rating (1–5), and a comment of up to 1000 characters.",
         },
         { status: 400 }
       );
@@ -76,7 +99,9 @@ export async function POST(request) {
       createdAt: new Date(),
     };
 
-    const result = await db.collection("reviews").insertOne(review);
+    const result = await db
+      .collection("reviews")
+      .insertOne(review);
 
     return NextResponse.json(
       {
@@ -93,7 +118,10 @@ export async function POST(request) {
     console.error("Create review error:", error);
 
     return NextResponse.json(
-      { success: false, message: "Unable to add review." },
+      {
+        success: false,
+        message: "Unable to add review.",
+      },
       { status: 500 }
     );
   }

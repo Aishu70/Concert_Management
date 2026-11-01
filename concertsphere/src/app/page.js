@@ -23,8 +23,12 @@ export default function Home() {
   const [selectedTicketTypeId, setSelectedTicketTypeId] = useState("");
   const [quantity, setQuantity] = useState(1);
 
-  // Demo bookings
+  // MySQL bookings
   const [bookings, setBookings] = useState([]);
+  const [bookingCustomerId, setBookingCustomerId] = useState("");
+  const [bookingSubmitting, setBookingSubmitting] = useState(false);
+  const [bookingMessage, setBookingMessage] = useState("");
+  const [bookingMessageType, setBookingMessageType] = useState("");
 
   // MongoDB reviews
   const [reviews, setReviews] = useState([]);
@@ -41,7 +45,9 @@ export default function Home() {
     async function loadConcerts() {
       try {
         setLoading(true);
+
         const data = await getConcerts();
+
         setConcerts(data);
         setError("");
       } catch (err) {
@@ -74,13 +80,17 @@ export default function Home() {
         const response = await fetch(
           `/api/ticket-types?concertId=${selectedConcert.id}`
         );
+
         const result = await response.json();
 
         if (!response.ok || !result.success) {
-          throw new Error(result.message || "Unable to load ticket types.");
+          throw new Error(
+            result.message || "Unable to load ticket types."
+          );
         }
 
         const types = result.data || [];
+
         setTicketTypes(types);
 
         const firstAvailable = types.find(
@@ -92,7 +102,10 @@ export default function Home() {
         );
       } catch (err) {
         console.error("Failed to load ticket types:", err);
-        setTicketTypesError(err.message || "Unable to load ticket types.");
+
+        setTicketTypesError(
+          err.message || "Unable to load ticket types."
+        );
       } finally {
         setTicketTypesLoading(false);
       }
@@ -118,16 +131,22 @@ export default function Home() {
         const response = await fetch(
           `/api/reviews?concertId=${selectedConcert.id}`
         );
+
         const result = await response.json();
 
         if (!response.ok || !result.success) {
-          throw new Error(result.message || "Unable to load reviews.");
+          throw new Error(
+            result.message || "Unable to load reviews."
+          );
         }
 
         setReviews(result.data || []);
       } catch (err) {
         console.error("Failed to load reviews:", err);
-        setReviewsError(err.message || "Unable to load reviews.");
+
+        setReviewsError(
+          err.message || "Unable to load reviews."
+        );
       } finally {
         setReviewsLoading(false);
       }
@@ -152,6 +171,7 @@ export default function Home() {
     });
   }, [concerts, search]);
 
+  // Selected ticket type
   const selectedTicketType = ticketTypes.find(
     (type) => String(type.id) === selectedTicketTypeId
   );
@@ -164,28 +184,152 @@ export default function Home() {
     ? Number(selectedTicketType.price)
     : 0;
 
-  // Create a demo booking
-  function createBooking() {
-    if (!selectedConcert || !selectedTicketType || availableTickets < 1) {
+  // Create booking through the MySQL API
+  async function createBooking() {
+    const customerId = Number(bookingCustomerId);
+    const requestedQuantity = Number(quantity);
+
+    // Validate customer ID
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      setBookingMessage("Enter a valid customer ID.");
+      setBookingMessageType("error");
       return;
     }
 
-    if (quantity > availableTickets) {
+    // Validate concert and ticket selection
+    if (!selectedConcert || !selectedTicketType) {
+      setBookingMessage(
+        "Please select a concert and ticket category."
+      );
+      setBookingMessageType("error");
       return;
     }
 
-    const booking = {
-      id: Date.now(),
-      concert: selectedConcert.name,
-      ticket: selectedTicketType.name,
-      quantity,
-      total: ticketPrice * quantity,
-    };
+    // Validate quantity
+    if (
+      !Number.isInteger(requestedQuantity) ||
+      requestedQuantity < 1 ||
+      requestedQuantity > 6
+    ) {
+      setBookingMessage(
+        "Select a quantity between 1 and 6."
+      );
+      setBookingMessageType("error");
+      return;
+    }
 
-    setBookings((previous) => [booking, ...previous]);
-    setSelectedConcert(null);
-    setQuantity(1);
-    setActivePage("bookings");
+    // Check available inventory
+    if (
+      availableTickets < 1 ||
+      requestedQuantity > availableTickets
+    ) {
+      setBookingMessage(
+        `Only ${availableTickets} ticket(s) are currently available.`
+      );
+      setBookingMessageType("error");
+      return;
+    }
+
+    try {
+      setBookingSubmitting(true);
+      setBookingMessage("");
+      setBookingMessageType("");
+
+      // Send booking request to the backend
+      const response = await fetch("/api/bookings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          customerId: customerId,
+          concertId: Number(selectedConcert.id),
+          ticketTypeId: Number(selectedTicketType.id),
+          quantity: requestedQuantity,
+        }),
+      });
+
+      const result = await response.json();
+
+      // Handle API errors
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message || "Unable to create booking."
+        );
+      }
+
+      // Store the actual booking response in React state
+      const newBooking = {
+        id: result.bookingId,
+        concert: selectedConcert.name,
+        ticket: selectedTicketType.name,
+        quantity: Number(result.quantity),
+        total: Number(result.totalAmount),
+        status: result.bookingStatus || "PENDING",
+      };
+
+      setBookings((previous) => [
+        newBooking,
+        ...previous,
+      ]);
+
+      setBookingMessage(
+        `Booking #${result.bookingId} created successfully. Status: ${
+          result.bookingStatus || "PENDING"
+        }. Payment has not been processed.`
+      );
+
+      setBookingMessageType("success");
+
+      setQuantity(1);
+
+    } catch (err) {
+      console.error("Failed to create booking:", err);
+
+      setBookingMessage(
+        err.message || "Unable to create booking. Please try again."
+      );
+
+      setBookingMessageType("error");
+
+      return;
+    } finally {
+      setBookingSubmitting(false);
+    }
+
+    // Refresh ticket availability separately.
+    // A refresh failure must not turn a successful booking
+    // into an apparent booking failure.
+    try {
+      const ticketResponse = await fetch(
+        `/api/ticket-types?concertId=${selectedConcert.id}`
+      );
+
+      const ticketResult = await ticketResponse.json();
+
+      if (ticketResponse.ok && ticketResult.success) {
+        const updatedTypes = ticketResult.data || [];
+
+        setTicketTypes(updatedTypes);
+
+        const updatedSelectedType = updatedTypes.find(
+          (type) =>
+            String(type.id) === String(selectedTicketType.id)
+        );
+
+        if (
+          !updatedSelectedType ||
+          Number(updatedSelectedType.available_tickets) < 1
+        ) {
+          setSelectedTicketTypeId("");
+        }
+      }
+    } catch (err) {
+      console.error(
+        "Booking succeeded, but ticket availability refresh failed:",
+        err
+      );
+    }
   }
 
   // Submit a review to MongoDB
@@ -224,21 +368,32 @@ export default function Home() {
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        throw new Error(result.message || "Unable to submit review.");
+        throw new Error(
+          result.message || "Unable to submit review."
+        );
       }
 
-      setReviews((previous) => [result.data, ...previous]);
+      setReviews((previous) => [
+        result.data,
+        ...previous,
+      ]);
+
       setReviewComment("");
       setReviewRating(5);
       setReviewMessage("Review added successfully!");
+
     } catch (err) {
       console.error("Failed to submit review:", err);
-      setReviewMessage(err.message || "Unable to submit review.");
+
+      setReviewMessage(
+        err.message || "Unable to submit review."
+      );
     } finally {
       setReviewSubmitting(false);
     }
   }
 
+  // Format date
   function formatDate(date) {
     if (!date) return "Date unavailable";
 
@@ -251,10 +406,12 @@ export default function Home() {
 
   return (
     <div className="app-shell">
+
       {/* SIDEBAR */}
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark">C</span>
+
           <div>
             <strong>concertsphere</strong>
             <small>YOUR WORLD OF LIVE MUSIC</small>
@@ -286,9 +443,11 @@ export default function Home() {
 
       {/* MAIN CONTENT */}
       <main className="main-area">
+
         <header className="topbar">
           <div>
             <p>Workspace / {activePage}</p>
+
             <h2>
               {activePage === "home"
                 ? "Your concert dashboard"
@@ -302,6 +461,7 @@ export default function Home() {
         </header>
 
         <div className="content">
+
           {/* HOME PAGE */}
           {activePage === "home" && (
             <>
@@ -338,7 +498,9 @@ export default function Home() {
               ) : error ? (
                 <p className="empty">{error}</p>
               ) : concerts.length === 0 ? (
-                <p className="empty">No concerts available.</p>
+                <p className="empty">
+                  No concerts available.
+                </p>
               ) : (
                 <div className="concert-grid">
                   {concerts.slice(0, 3).map((concert) => (
@@ -368,7 +530,9 @@ export default function Home() {
                 className="search"
                 placeholder="Search concerts, artists or cities..."
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) =>
+                  setSearch(event.target.value)
+                }
               />
 
               {loading ? (
@@ -400,16 +564,18 @@ export default function Home() {
                 <div>
                   <span>YOUR CONCERT ACTIVITY</span>
                   <h2>My bookings</h2>
-                  <p>Your demo booking history.</p>
+                  <p>Your bookings from this session.</p>
                 </div>
               </section>
 
               {bookings.length === 0 ? (
                 <div className="empty">
                   <h3>No bookings yet.</h3>
+
                   <p>
-                    Explore concerts and create your first demo booking.
+                    Explore concerts and create your first booking.
                   </p>
+
                   <button onClick={() => setActivePage("explore")}>
                     Explore concerts
                   </button>
@@ -418,27 +584,41 @@ export default function Home() {
                 bookings.map((booking) => (
                   <div className="booking-card" key={booking.id}>
                     <h3>{booking.concert}</h3>
+
                     <p>
                       {booking.ticket} · {booking.quantity} ticket(s)
                     </p>
+
                     <strong>
                       ₹{booking.total.toLocaleString("en-IN")}
                     </strong>
+
                     <p>
-                      Demo booking — not saved to database yet.
+                      Booking ID: {booking.id}
+                    </p>
+
+                    <p>
+                      Booking status: {booking.status}
+                    </p>
+
+                    <p>
+                      Payment not processed.
                     </p>
                   </div>
                 ))
               )}
             </>
           )}
+
         </div>
       </main>
 
       {/* CONCERT DETAILS MODAL */}
       {selectedConcert && (
         <div className="modal-backdrop">
+
           <div className="modal">
+
             <button
               className="close"
               onClick={() => setSelectedConcert(null)}
@@ -447,13 +627,48 @@ export default function Home() {
             </button>
 
             <span>CONCERT DETAILS</span>
+
             <h2>{selectedConcert.name}</h2>
+
             <p>{selectedConcert.artist}</p>
+
             <p>{formatDate(selectedConcert.date)}</p>
+
             <p>
               {selectedConcert.venue}, {selectedConcert.city}
             </p>
 
+            {/* CUSTOMER ID */}
+            <label htmlFor="booking-customer-id">
+              Customer ID
+            </label>
+
+            <input
+              id="booking-customer-id"
+              type="number"
+              min="1"
+              value={bookingCustomerId}
+              onChange={(event) =>
+                setBookingCustomerId(event.target.value)
+              }
+              placeholder="Enter your existing customer ID"
+            />
+
+            {/* BOOKING MESSAGE */}
+            {bookingMessage && (
+              <p
+                className={
+                  bookingMessageType === "success"
+                    ? "booking-success"
+                    : "booking-error"
+                }
+                role="status"
+              >
+                {bookingMessage}
+              </p>
+            )}
+
+            {/* TICKET CATEGORY */}
             <label>Ticket category</label>
 
             {ticketTypesLoading ? (
@@ -471,12 +686,18 @@ export default function Home() {
                   onChange={(event) => {
                     setSelectedTicketTypeId(event.target.value);
                     setQuantity(1);
+                    setBookingMessage("");
+                    setBookingMessageType("");
                   }}
                 >
-                  <option value="">Select a ticket category</option>
+                  <option value="">
+                    Select a ticket category
+                  </option>
 
                   {ticketTypes.map((type) => {
-                    const available = Number(type.available_tickets);
+                    const available = Number(
+                      type.available_tickets
+                    );
 
                     return (
                       <option
@@ -486,6 +707,7 @@ export default function Home() {
                       >
                         {type.name} — ₹
                         {Number(type.price).toLocaleString("en-IN")}
+
                         {available < 1
                           ? " (Sold out)"
                           : ` (${available} available)`}
@@ -497,7 +719,9 @@ export default function Home() {
                 {selectedTicketType && (
                   <>
                     {selectedTicketType.description && (
-                      <p>{selectedTicketType.description}</p>
+                      <p>
+                        {selectedTicketType.description}
+                      </p>
                     )}
 
                     <p>
@@ -514,18 +738,20 @@ export default function Home() {
                       max={Math.min(6, availableTickets)}
                       value={quantity}
                       disabled={availableTickets < 1}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+
                         setQuantity(
                           Math.max(
                             1,
                             Math.min(
                               6,
                               availableTickets,
-                              Number(event.target.value) || 1
+                              value || 1
                             )
                           )
-                        )
-                      }
+                        );
+                      }}
                     />
 
                     <h3>
@@ -537,21 +763,26 @@ export default function Home() {
               </>
             )}
 
+            {/* BOOKING BUTTON */}
             <button
               className="book-button"
               onClick={createBooking}
               disabled={
                 ticketTypesLoading ||
+                bookingSubmitting ||
                 !selectedTicketType ||
                 availableTickets < 1 ||
                 quantity > availableTickets
               }
             >
-              Create demo booking
+              {bookingSubmitting
+                ? "Creating booking..."
+                : "Book tickets"}
             </button>
 
             <p className="disclaimer">
-              Demo only. No ticket is reserved or payment processed.
+              Bookings are saved in the database.
+              Payment is not processed yet.
             </p>
 
             {/* MONGODB REVIEWS */}
@@ -565,29 +796,47 @@ export default function Home() {
               ) : reviewsError ? (
                 <p className="empty">{reviewsError}</p>
               ) : reviews.length === 0 ? (
-                <p>No reviews yet. Be the first to review this concert.</p>
+                <p>
+                  No reviews yet. Be the first to review this concert.
+                </p>
               ) : (
                 <div className="reviews-list">
                   {reviews.map((review) => (
-                    <article className="review-card" key={review._id}>
+                    <article
+                      className="review-card"
+                      key={review._id}
+                    >
                       <strong>
                         {"★".repeat(Number(review.rating))}
-                        {"☆".repeat(5 - Number(review.rating))}
+                        {"☆".repeat(
+                          5 - Number(review.rating)
+                        )}
                       </strong>
+
                       <p>{review.comment}</p>
+
                       <small>
                         Customer #{review.customerId} ·{" "}
-                        {new Date(review.createdAt).toLocaleDateString("en-IN")}
+                        {new Date(
+                          review.createdAt
+                        ).toLocaleDateString("en-IN")}
                       </small>
                     </article>
                   ))}
                 </div>
               )}
 
-              <form onSubmit={submitReview} className="review-form">
+              {/* REVIEW FORM */}
+              <form
+                onSubmit={submitReview}
+                className="review-form"
+              >
                 <h4>Write a review</h4>
 
-                <label htmlFor="review-customer-id">Customer ID</label>
+                <label htmlFor="review-customer-id">
+                  Customer ID
+                </label>
+
                 <input
                   id="review-customer-id"
                   type="number"
@@ -599,7 +848,10 @@ export default function Home() {
                   required
                 />
 
-                <label htmlFor="review-rating">Rating</label>
+                <label htmlFor="review-rating">
+                  Rating
+                </label>
+
                 <select
                   id="review-rating"
                   value={reviewRating}
@@ -614,22 +866,34 @@ export default function Home() {
                   <option value={1}>1 - Poor</option>
                 </select>
 
-                <label htmlFor="review-comment">Comment</label>
+                <label htmlFor="review-comment">
+                  Comment
+                </label>
+
                 <textarea
                   id="review-comment"
                   rows={3}
                   maxLength={1000}
                   value={reviewComment}
-                  onChange={(event) => setReviewComment(event.target.value)}
+                  onChange={(event) =>
+                    setReviewComment(event.target.value)
+                  }
                   placeholder="How was your concert experience?"
                   required
                 />
 
-                <button type="submit" disabled={reviewSubmitting}>
-                  {reviewSubmitting ? "Submitting..." : "Submit review"}
+                <button
+                  type="submit"
+                  disabled={reviewSubmitting}
+                >
+                  {reviewSubmitting
+                    ? "Submitting..."
+                    : "Submit review"}
                 </button>
 
-                {reviewMessage && <p>{reviewMessage}</p>}
+                {reviewMessage && (
+                  <p>{reviewMessage}</p>
+                )}
               </form>
             </section>
           </div>
@@ -651,6 +915,7 @@ function ConcertCard({ concert, onSelect }) {
 
   return (
     <article className="concert-card">
+
       <div className="concert-art purple">
         <span>LIVE CONCERT</span>
         <h2>{concert.name}</h2>
@@ -659,7 +924,9 @@ function ConcertCard({ concert, onSelect }) {
 
       <div className="card-content">
         <span className="date">{formattedDate}</span>
+
         <h3>{concert.name}</h3>
+
         <p>
           {concert.venue}, {concert.city}
         </p>
