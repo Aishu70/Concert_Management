@@ -2,6 +2,53 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/mysql";
 
+export async function GET(request) {
+  const customerId = Number(request.nextUrl.searchParams.get("customerId"));
+
+  if (!Number.isInteger(customerId) || customerId <= 0) {
+    return NextResponse.json(
+      { success: false, message: "Provide a valid customer ID." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const [bookings] = await pool.execute(
+      `SELECT
+         b.booking_id AS id,
+        b.customer_id AS customerId,
+        c.concert_name AS concert,
+         tt.type_name AS ticket,
+         SUM(bi.quantity) AS quantity,
+         SUM(bi.quantity * bi.price_at_booking) AS total,
+         b.booking_status AS status
+       FROM Booking b
+       JOIN BookingItem bi ON bi.booking_id = b.booking_id
+       JOIN Ticket t ON t.ticket_id = bi.ticket_id
+       JOIN Concert c ON c.concert_id = t.concert_id
+       JOIN TicketType tt ON tt.ticket_type_id = t.ticket_type_id
+       WHERE b.customer_id = ?
+       GROUP BY
+         b.booking_id,
+         b.customer_id,
+         c.concert_name,
+         tt.type_name,
+         b.booking_status
+       ORDER BY b.booking_id DESC`,
+      [customerId]
+    );
+
+    return NextResponse.json({ success: true, data: bookings });
+  } catch (error) {
+    console.error("Booking retrieval API error:", error);
+
+    return NextResponse.json(
+      { success: false, message: "Unable to retrieve bookings." },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request) {
   let connection;
   let transactionStarted = false;

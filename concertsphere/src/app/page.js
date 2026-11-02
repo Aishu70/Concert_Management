@@ -25,6 +25,8 @@ export default function Home() {
 
   // MySQL bookings
   const [bookings, setBookings] = useState([]);
+  const [bookingsLoading, setBookingsLoading] = useState(false);
+  const [bookingsError, setBookingsError] = useState("");
   const [paymentBooking, setPaymentBooking] = useState(null);
   const [paymentRecord, setPaymentRecord] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("UPI");
@@ -119,6 +121,57 @@ export default function Home() {
 
     loadTicketTypes();
   }, [selectedConcert]);
+
+  useEffect(() => {
+    if (activePage !== "bookings") {
+      return;
+    }
+
+    const customerId = Number(bookingCustomerId);
+    if (!Number.isInteger(customerId) || customerId <= 0) {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function loadBookings() {
+      try {
+        setBookingsLoading(true);
+        setBookingsError("");
+
+        const response = await fetch(
+          `/api/bookings?customerId=${customerId}`,
+          { signal: controller.signal }
+        );
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || "Unable to retrieve bookings.");
+        }
+
+        setBookings(
+          (result.data || []).map((booking) => ({
+            ...booking,
+            quantity: Number(booking.quantity),
+            total: Number(booking.total),
+          }))
+        );
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          console.error("Failed to load bookings:", err);
+          setBookingsError(err.message || "Unable to retrieve bookings.");
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setBookingsLoading(false);
+        }
+      }
+    }
+
+    loadBookings();
+
+    return () => controller.abort();
+  }, [activePage, bookingCustomerId]);
 
   // Fetch MongoDB reviews when a concert is selected
   useEffect(() => {
@@ -775,11 +828,37 @@ export default function Home() {
                 <div>
                   <span>YOUR CONCERT ACTIVITY</span>
                   <h2>My bookings</h2>
-                  <p>Your bookings from this session.</p>
+                  <p>Your bookings saved in the database.</p>
                 </div>
               </section>
 
-              {bookings.length === 0 ? (
+              <label htmlFor="bookings-customer-id">Customer ID</label>
+              <input
+                id="bookings-customer-id"
+                className="search"
+                type="number"
+                min="1"
+                value={bookingCustomerId}
+                onChange={(event) => {
+                  setBookingCustomerId(event.target.value);
+                  setBookings([]);
+                  setBookingsError("");
+                  setBookingsLoading(false);
+                }}
+                placeholder="Enter your customer ID to view bookings"
+              />
+
+              {bookingsLoading ? (
+                <p>Loading your bookings...</p>
+              ) : bookingsError ? (
+                <p className="booking-error" role="alert">{bookingsError}</p>
+              ) : !Number.isInteger(Number(bookingCustomerId)) ||
+                Number(bookingCustomerId) <= 0 ? (
+                <div className="empty">
+                  <h3>Enter your customer ID.</h3>
+                  <p>Use the same customer ID you entered when booking.</p>
+                </div>
+              ) : bookings.length === 0 ? (
                 <div className="empty">
                   <h3>No bookings yet.</h3>
 
@@ -806,6 +885,10 @@ export default function Home() {
 
                     <p>
                       Booking ID: {booking.id}
+                    </p>
+
+                    <p>
+                      Customer ID: {booking.customerId}
                     </p>
 
                     <p>

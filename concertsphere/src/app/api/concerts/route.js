@@ -36,6 +36,34 @@ export async function GET() {
 
         COALESCE(
           (
+            SELECT GROUP_CONCAT(
+              DISTINCT a.artist_type
+              SEPARATOR ', '
+            )
+            FROM Performance p
+            INNER JOIN Artist a
+              ON p.artist_id = a.artist_id
+            WHERE p.concert_id = c.concert_id
+          ),
+          'Artist type unavailable'
+        ) AS artistType,
+
+        COALESCE(
+          (
+            SELECT GROUP_CONCAT(
+              DISTINCT a.country
+              SEPARATOR ', '
+            )
+            FROM Performance p
+            INNER JOIN Artist a
+              ON p.artist_id = a.artist_id
+            WHERE p.concert_id = c.concert_id
+          ),
+          'Country unavailable'
+        ) AS artistCountry,
+
+        COALESCE(
+          (
             SELECT MIN(tt.price)
             FROM Ticket t
             INNER JOIN TicketType tt
