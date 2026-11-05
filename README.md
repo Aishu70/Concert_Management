@@ -8,7 +8,7 @@ While working on this project, we got to apply what we learned about database de
 
 ## Team Members
 
-1. **Ananya V** - PES1UG24CSO61
+1. **Ananya V** - PES1UG24CS061
 2. **Akanksha P** - PES1UG25CS801
 
 ## Features
